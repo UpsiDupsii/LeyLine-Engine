@@ -1,5 +1,7 @@
 """Live autonomous gameplay runner with real-time visual HUD telemetry."""
 
+from __future__ import annotations
+
 import argparse
 import sys
 import threading
@@ -18,6 +20,7 @@ from leyline.controller.models import GameAction
 from leyline.controller.mouse import MouseController
 from leyline.vision.calibrator import RegionCalibrator
 from leyline.vision.capture import ScreenCaptureEngine
+from leyline.vision.puzzle_detector import PuzzleDetector, PuzzleState
 from leyline.vision.window import WindowManager
 
 
@@ -34,7 +37,9 @@ class GameRunner:
         mock_mode: bool = False,
         fps: float = 3.0,
         continuous: bool = True,
-        settle_time: float = 2.0,
+        settle_time: float = 2.2,
+        hover_delay: float = 0.25,
+        align_tolerance: int = 10,
     ) -> None:
         self.preset_name = preset_name
         self.window_title = window_title
@@ -44,7 +49,9 @@ class GameRunner:
         self.mock_mode = mock_mode
         self.fps = max(0.5, fps)
         self.continuous = continuous
-        self.settle_time = settle_time
+        self.settle_time = max(0.5, settle_time)
+        self.hover_delay = max(0.05, hover_delay)
+        self.align_tolerance = align_tolerance
         self.calibrator = RegionCalibrator()
 
         # Determine capture region
@@ -82,6 +89,12 @@ class GameRunner:
         self._decision_lock = threading.Lock()
         self._latest_frame: np.ndarray | None = None
         self._frame_lock = threading.Lock()
+        self._latest_puzzle_state: PuzzleState | None = None
+
+        # Verification telemetry
+        self._puzzle_phase = "READY"
+        self._align_error = 0.0
+        self._settle_remaining = 0.0
 
     def _countdown(self) -> None:
         """Countdown timer to allow focusing on the game window."""
@@ -97,31 +110,68 @@ class GameRunner:
         print("-----------------------------------------------------\n")
 
     def _puzzle_worker(self) -> None:
-        """Turn-based drop worker for Ball Guys / Suika merge puzzle games."""
+        """Turn-based drop worker with aiming, visual verification, and physics settling."""
         while self._running:
             with self._frame_lock:
                 frame = self._latest_frame.copy() if self._latest_frame is not None else None
 
             if frame is not None and self.region is not None:
-                frame_bytes = self.engine.preprocess_for_agent(frame, target_size=(512, 512))
                 assert isinstance(self.agent, BallGuysAgent)
-                decision = self.agent.decide_drop(frame_bytes)
+
+                # Phase 1: Board Perception & Decision
+                self._puzzle_phase = "PERCEIVING"
+                decision, state = self.agent.decide_drop_from_frame(frame)
+                self._latest_puzzle_state = state
 
                 with self._decision_lock:
                     self._latest_decision = decision
 
-                # Execute mouse movement and drop click
                 if not self.dry_run:
-                    self.mouse.drop_at(
+                    # Phase 2: Aim (Move cursor to candidate drop position)
+                    self._puzzle_phase = "AIMING"
+                    self.mouse.aim_at(
                         container_region=self.region,
                         x_fraction=decision.drop_x,
-                        y_offset_pixels=40,
+                        y_offset_pixels=30,
+                        container_bounds=state.container,
                     )
 
-                # Wait for physics: balls drop, roll, bounce, and merge
-                time.sleep(self.settle_time)
+                    # Phase 3: Hover & Let Hanging Ball Align
+                    self._puzzle_phase = "VERIFYING ALIGNMENT"
+                    time.sleep(self.hover_delay)
+
+                    # Capture fresh frame to verify dropper alignment
+                    verify_frame = self.engine.grab_frame()
+                    aligned, actual_f, error_px = PuzzleDetector.verify_needle_alignment(
+                        verify_frame,
+                        target_fraction=decision.drop_x,
+                        container=state.container,
+                        tolerance_pixels=self.align_tolerance,
+                    )
+                    self._align_error = error_px
+
+                    # Micro-adjustment if off-target
+                    if not aligned and abs(error_px) > self.align_tolerance:
+                        self._puzzle_phase = "ADJUSTING"
+                        self.mouse.nudge(int(error_px), 0)
+                        time.sleep(0.12)
+
+                    # Phase 4: Release Click
+                    self._puzzle_phase = "DROPPING"
+                    self.mouse.click("left")
+
+                # Phase 5: Settle Phase (Balls fall, collide, and merge)
+                self._puzzle_phase = "SETTLING"
+                settle_start = time.time()
+                while (time.time() - settle_start) < self.settle_time and self._running:
+                    self._settle_remaining = max(
+                        0.0, self.settle_time - (time.time() - settle_start)
+                    )
+                    time.sleep(0.05)
+
+                self._settle_remaining = 0.0
             else:
-                time.sleep(0.5)
+                time.sleep(0.2)
 
     def _action_worker(self) -> None:
         """Background thread executing fast action perception without stalling vehicle physics."""
@@ -218,23 +268,56 @@ class GameRunner:
         hud = frame.copy()
         h, w = hud.shape[:2]
 
-        # Draw drop line for Ball Guys
-        if self.agent_type == "ball_guys" and isinstance(decision, DropDecision):
-            drop_pixel_x = int(decision.drop_x * w)
-            cv2.line(hud, (drop_pixel_x, 0), (drop_pixel_x, h), (0, 255, 255), 2)
-            cv2.circle(hud, (drop_pixel_x, 40), 12, (0, 255, 0), -1)
+        # Ball Guys Puzzle overlays
+        if self.agent_type == "ball_guys":
+            state = self._latest_puzzle_state
+            if state is not None:
+                c = state.container
+                # Draw container boundary box in cyan
+                cv2.rectangle(hud, (c.left, c.top), (c.right, c.bottom), (255, 255, 0), 2)
+
+                # Draw red dashed limit line
+                cv2.line(
+                    hud, (c.left, state.red_line_y), (c.right, state.red_line_y), (0, 0, 255), 2
+                )
+
+                # Highlight resting balls
+                for b in state.resting_balls:
+                    r = max(8, int(b.radius))
+                    cv2.circle(hud, (b.x, b.y), r, (0, 255, 0), 2)
+                    cv2.putText(
+                        hud,
+                        f"T{b.tier}",
+                        (b.x - 10, b.y - r - 4),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.4,
+                        (0, 255, 0),
+                        1,
+                    )
+
+                # Highlight active hanging ball
+                if state.hanging_ball is not None:
+                    hb = state.hanging_ball
+                    hr = max(8, int(hb.radius))
+                    cv2.circle(hud, (hb.x, hb.y), hr, (0, 255, 255), 2)
+
+                # Draw drop line relative to container
+                if isinstance(decision, DropDecision):
+                    drop_pixel_x = int(c.left + decision.drop_x * c.width)
+                    cv2.line(hud, (drop_pixel_x, c.top), (drop_pixel_x, c.bottom), (0, 255, 255), 2)
+                    cv2.circle(hud, (drop_pixel_x, c.top + 20), 8, (0, 255, 0), -1)
 
         # Top banner background
-        cv2.rectangle(hud, (0, 0), (w, 75), (20, 20, 20), -1)
+        cv2.rectangle(hud, (0, 0), (w, 85), (20, 20, 20), -1)
 
         mode_label = "DRY-RUN (NO CLICKS)" if self.dry_run else "LIVE AUTONOMOUS SOLVER"
         status_color = (0, 165, 255) if self.dry_run else (0, 255, 0)
         cv2.putText(
             hud,
             f"LEYLINE | Mode: {self.agent_type.upper()} | {mode_label}",
-            (10, 25),
+            (10, 22),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
+            0.55,
             status_color,
             2,
             cv2.LINE_AA,
@@ -244,14 +327,31 @@ class GameRunner:
             if isinstance(decision, DropDecision):
                 pct = f"{decision.drop_x * 100:.0f}%"
                 lat = f"{decision.latency_ms:.0f}ms"
+                phase_info = self._puzzle_phase
+                if self._settle_remaining > 0:
+                    phase_info = f"SETTLING ({self._settle_remaining:.1f}s)"
+
                 cv2.putText(
                     hud,
-                    f"DROP POSITION: [{pct} of container] | Latency: {lat}",
-                    (10, 55),
+                    f"PHASE: [{phase_info}] | TARGET: [{pct}] | Latency: {lat}",
+                    (10, 50),
                     cv2.FONT_HERSHEY_SIMPLEX,
-                    0.65,
+                    0.6,
                     (255, 255, 255),
                     2,
+                    cv2.LINE_AA,
+                )
+                err_text = (
+                    f"Err: {self._align_error:.0f}px" if abs(self._align_error) > 0 else "Aligned"
+                )
+                cv2.putText(
+                    hud,
+                    f"AIM: {decision.target_match[:35]} | {err_text}",
+                    (10, 75),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (200, 255, 200),
+                    1,
                     cv2.LINE_AA,
                 )
             else:
@@ -271,7 +371,7 @@ class GameRunner:
 
             # Bottom reasoning box
             cv2.rectangle(hud, (0, h - 45), (w, h), (10, 10, 10), -1)
-            reason_text = decision.reason[:65]
+            reason_text = decision.reason[:75]
             cv2.putText(
                 hud,
                 f"STRATEGY: {reason_text}",
@@ -320,8 +420,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--settle-time",
         type=float,
-        default=2.0,
-        help="Seconds to wait between drops for physics and ball merges to settle in Ball Guys. Default: 2.0s.",
+        default=2.2,
+        help="Seconds to wait between drops for physics and ball merges to settle in Ball Guys. Default: 2.2s.",
+    )
+    parser.add_argument(
+        "--hover-delay",
+        type=float,
+        default=0.25,
+        help="Delay in seconds to let in-game dropper glide to mouse position before verification check. Default: 0.25s.",
+    )
+    parser.add_argument(
+        "--align-tolerance",
+        type=int,
+        default=10,
+        help="Pixel discrepancy tolerance when verifying dropper needle alignment. Default: 10 pixels.",
     )
     parser.add_argument(
         "--dry-run",
@@ -356,6 +468,8 @@ def main() -> None:
         mock_mode=args.mock,
         fps=args.fps,
         settle_time=args.settle_time,
+        hover_delay=args.hover_delay,
+        align_tolerance=args.align_tolerance,
     )
     try:
         runner.run()

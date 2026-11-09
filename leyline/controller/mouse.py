@@ -1,10 +1,16 @@
 """Mouse controller for pointer positioning and click-to-drop puzzle games."""
 
+from __future__ import annotations
+
 import ctypes
 import os
 import time
+from typing import TYPE_CHECKING
 
 from leyline.vision.models import ScreenRegion
+
+if TYPE_CHECKING:
+    from leyline.vision.puzzle_detector import ContainerBounds
 
 
 class MouseController:
@@ -26,14 +32,17 @@ class MouseController:
         except Exception:
             return False
 
+    def nudge(self, delta_x: int, delta_y: int = 0) -> bool:
+        """Micro-adjust cursor position by delta screen pixels."""
+        cur_x, cur_y = self._last_position
+        return self.set_position(cur_x + delta_x, cur_y + delta_y)
+
     def click(self, button: str = "left", hold_duration: float = 0.05) -> bool:
         """Execute a mouse click at the current position."""
         if self.mock_mode or not self._user32:
             return True
 
         # Windows mouse event flags
-        # MOUSEEVENTF_LEFTDOWN = 0x0002, MOUSEEVENTF_LEFTUP = 0x0004
-        # MOUSEEVENTF_RIGHTDOWN = 0x0008, MOUSEEVENTF_RIGHTUP = 0x0010
         down_flag = 0x0002 if button == "left" else 0x0008
         up_flag = 0x0004 if button == "left" else 0x0010
 
@@ -45,12 +54,44 @@ class MouseController:
         except Exception:
             return False
 
+    def aim_at(
+        self,
+        container_region: ScreenRegion,
+        x_fraction: float,
+        y_offset_pixels: int = 40,
+        container_bounds: ContainerBounds | None = None,
+    ) -> tuple[int, int]:
+        """Position cursor over the intended drop coordinate without clicking.
+
+        Args:
+            container_region: Bounding box of the overall screen capture area.
+            x_fraction: Float from 0.0 (left wall) to 1.0 (right wall).
+            y_offset_pixels: Vertical distance below container top.
+            container_bounds: Optional inner container bounds detected by CV.
+
+        Returns:
+            tuple[int, int]: Computed screen coordinates (screen_x, screen_y).
+        """
+        safe_fraction = max(0.08, min(0.92, x_fraction))
+        if container_bounds is not None:
+            container_screen_left = container_region.left + container_bounds.left
+            container_screen_width = container_bounds.width
+            screen_x = int(container_screen_left + safe_fraction * container_screen_width)
+            screen_y = int(container_region.top + container_bounds.top + y_offset_pixels)
+        else:
+            screen_x = int(container_region.left + safe_fraction * container_region.width)
+            screen_y = int(container_region.top + y_offset_pixels)
+
+        self.set_position(screen_x, screen_y)
+        return (screen_x, screen_y)
+
     def drop_at(
         self,
         container_region: ScreenRegion,
         x_fraction: float,
         y_offset_pixels: int = 40,
         settle_time: float = 0.15,
+        container_bounds: ContainerBounds | None = None,
     ) -> tuple[int, int]:
         """Position cursor at horizontal fraction across container and trigger drop click.
 
@@ -59,22 +100,20 @@ class MouseController:
             x_fraction: Float from 0.0 (left wall) to 1.0 (right wall).
             y_offset_pixels: Vertical distance below top of container to click.
             settle_time: Delay to let browser pointer catch up before clicking.
+            container_bounds: Optional inner container bounds detected by CV.
 
         Returns:
             tuple[int, int]: Screen coordinates (x, y) where drop was triggered.
         """
-        # Clamp fraction within safe container walls (0.08 to 0.92) to avoid wall clipping
-        safe_fraction = max(0.08, min(0.92, x_fraction))
-        screen_x = int(container_region.left + safe_fraction * container_region.width)
-        screen_y = int(container_region.top + y_offset_pixels)
-
-        # Move cursor to drop line
-        self.set_position(screen_x, screen_y)
+        coords = self.aim_at(
+            container_region=container_region,
+            x_fraction=x_fraction,
+            y_offset_pixels=y_offset_pixels,
+            container_bounds=container_bounds,
+        )
         time.sleep(settle_time)
-
-        # Click to drop the ball
         self.click("left")
-        return (screen_x, screen_y)
+        return coords
 
     @property
     def position(self) -> tuple[int, int]:
