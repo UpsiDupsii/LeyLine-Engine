@@ -10,7 +10,8 @@ import numpy as np
 from leyline.agents.models import PlayerDecision
 from leyline.agents.player import GamerAgent
 from leyline.agents.reflex import SubwayReflexAgent
-from leyline.controller.keyboard import KeyboardController
+from leyline.agents.truck_agent import TruckDriverAgent
+from leyline.controller.direct_input import DirectInputController
 from leyline.controller.models import GameAction
 from leyline.vision.calibrator import RegionCalibrator
 from leyline.vision.capture import ScreenCaptureEngine
@@ -24,11 +25,12 @@ class GameRunner:
         self,
         preset_name: str = "default",
         window_title: str | None = None,
-        agent_type: str = "reflex",
-        layout: str = "arrows",
+        agent_type: str = "truck",
+        layout: str = "wasd",
         dry_run: bool = False,
         mock_mode: bool = False,
-        fps: float = 15.0,
+        fps: float = 3.0,
+        hold_time: float = 0.3,
     ) -> None:
         self.preset_name = preset_name
         self.window_title = window_title
@@ -37,6 +39,7 @@ class GameRunner:
         self.dry_run = dry_run
         self.mock_mode = mock_mode
         self.fps = max(0.5, fps)
+        self.hold_time = hold_time
         self.calibrator = RegionCalibrator()
 
         # Determine capture region
@@ -53,11 +56,16 @@ class GameRunner:
             self.region = config.region if config else None
 
         self.engine = ScreenCaptureEngine(default_region=self.region, mock_mode=mock_mode)
-        self.controller = KeyboardController(layout=layout, mock_mode=(dry_run or mock_mode))
+        # Use DirectInputController with hardware scan codes for 100% browser & game compatibility
+        self.controller = DirectInputController(layout=layout, mock_mode=(dry_run or mock_mode))
 
         # Select agent brain
-        if self.agent_type == "reflex":
-            self.agent: GamerAgent | SubwayReflexAgent = SubwayReflexAgent()
+        if self.agent_type == "truck":
+            self.agent: GamerAgent | SubwayReflexAgent | TruckDriverAgent = TruckDriverAgent(
+                mock_mode=mock_mode
+            )
+        elif self.agent_type == "reflex":
+            self.agent = SubwayReflexAgent()
         else:
             self.agent = GamerAgent(mock_mode=mock_mode)
 
@@ -97,6 +105,11 @@ class GameRunner:
                 if now - last_decision_time >= interval:
                     if isinstance(self.agent, SubwayReflexAgent):
                         current_decision = self.agent.decide_action_from_frame(frame)
+                    elif isinstance(self.agent, TruckDriverAgent):
+                        frame_bytes = self.engine.preprocess_for_agent(
+                            frame, target_size=(512, 512)
+                        )
+                        current_decision = self.agent.decide_driving_action(frame_bytes)
                     else:
                         frame_bytes = self.engine.preprocess_for_agent(
                             frame, target_size=(512, 512)
@@ -104,10 +117,12 @@ class GameRunner:
                         current_decision = self.agent.decide_action(frame_bytes)
                     last_decision_time = now
 
-                    # Execute keyboard action
+                    # Execute hardware keystroke action
                     if current_decision and current_decision.action != GameAction.NONE:
                         if not self.dry_run:
-                            self.controller.tap_action(current_decision.action)
+                            self.controller.execute_action(
+                                current_decision.action, duration=self.hold_time
+                            )
 
                 # Render HUD
                 hud_frame = self._render_hud(frame, current_decision)
@@ -139,7 +154,6 @@ class GameRunner:
             lane_w = w // 3
             cv2.line(hud, (lane_w, 0), (lane_w, h), (60, 60, 60), 1)
             cv2.line(hud, (2 * lane_w, 0), (2 * lane_w, h), (60, 60, 60), 1)
-            # Collision scan horizon
             cv2.line(
                 hud,
                 (0, int(h * 0.45)),
@@ -206,27 +220,33 @@ def build_parser() -> argparse.ArgumentParser:
         "--preset",
         type=str,
         default="default",
-        help="Calibration preset name (e.g. subway_surfers, car_game, roblox).",
+        help="Calibration preset name (e.g. truck_game, car_game, roblox).",
     )
     parser.add_argument(
         "--window",
         type=str,
         default=None,
-        help="Target window title pattern (e.g. 'Chrome', 'Subway', 'Roblox').",
+        help="Target window title pattern (e.g. 'Chrome', 'Truck', 'Roblox').",
     )
     parser.add_argument(
         "--agent",
         type=str,
-        choices=["reflex", "gemini"],
-        default="reflex",
-        help="Agent brain: 'reflex' (0-2ms latency for fast games like Subway Surfers) or 'gemini' (multimodal VLM). Default: 'reflex'.",
+        choices=["truck", "reflex", "gemini"],
+        default="truck",
+        help="Agent brain: 'truck' (vehicle navigation with acceleration pulses), 'reflex' (sub-3ms lane runner), or 'gemini' (standard VLM). Default: 'truck'.",
     )
     parser.add_argument(
         "--layout",
         type=str,
-        choices=["arrows", "wasd"],
-        default="arrows",
-        help="Key mapping layout. Default: 'arrows'.",
+        choices=["wasd", "arrows"],
+        default="wasd",
+        help="Key mapping layout. Default: 'wasd' (standard for truck & 3D car games).",
+    )
+    parser.add_argument(
+        "--hold-time",
+        type=float,
+        default=0.35,
+        help="Key hold duration in seconds per acceleration pulse. Default: 0.35s.",
     )
     parser.add_argument(
         "--dry-run",
@@ -241,8 +261,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fps",
         type=float,
-        default=15.0,
-        help="Perception loop rate in decisions per second. Default: 15.0.",
+        default=2.5,
+        help="Perception decision rate in decisions per second. Default: 2.5.",
     )
     return parser
 
@@ -260,6 +280,7 @@ def main() -> None:
         dry_run=args.dry_run,
         mock_mode=args.mock,
         fps=args.fps,
+        hold_time=args.hold_time,
     )
     try:
         runner.run()

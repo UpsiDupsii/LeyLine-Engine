@@ -55,3 +55,7 @@ debug_frames/
 temp/
 *.mp3
 *.wav
+
+# User Calibration Profiles
+config/regions/*.json
+!config/regions/.gitkeep

@@ -18,7 +18,7 @@ def test_action_command_model() -> None:
         ActionCommand(duration=0.001)
 
     with pytest.raises(ValidationError):
-        ActionCommand(duration=5.0)
+        ActionCommand(duration=10.0)
 
 
 def test_controller_initialization() -> None:

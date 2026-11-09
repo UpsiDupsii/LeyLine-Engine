@@ -6,13 +6,19 @@ from pydantic import BaseModel, Field
 
 
 class GameAction(str, Enum):
-    """Supported gameplay control actions."""
+    """Supported gameplay control actions across arcade and driving games."""
 
+    FORWARD = "FORWARD"
     LEFT = "LEFT"
     RIGHT = "RIGHT"
+    REVERSE = "REVERSE"
+    FORWARD_LEFT = "FORWARD_LEFT"
+    FORWARD_RIGHT = "FORWARD_RIGHT"
     UP = "UP"
     DOWN = "DOWN"
     SPACE = "SPACE"
+    INTERACT = "INTERACT"
+    BRAKE = "BRAKE"
     NONE = "NONE"
 
 
@@ -21,6 +27,9 @@ class ActionCommand(BaseModel):
 
     action: GameAction = Field(default=GameAction.NONE, description="Target game action")
     duration: float = Field(
-        default=0.08, ge=0.01, le=2.0, description="Key press duration in seconds"
+        default=0.25,
+        ge=0.01,
+        le=5.0,
+        description="Key hold duration in seconds for vehicle movement",
     )
-    cooldown: float = Field(default=0.05, ge=0.0, description="Minimum cooldown before next action")
+    cooldown: float = Field(default=0.02, ge=0.0, description="Minimum cooldown before next action")

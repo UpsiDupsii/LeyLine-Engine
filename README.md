@@ -4,15 +4,15 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-LeyLine is an autonomous dual-agent AI gaming platform designed to play video games (Roblox, Subway Surfers, NES classics like Contra and Adventure Island) while running a dynamic, real-time AI live commentator powered by Google Gemini. Built with live streaming in mind (YouTube Live / OBS).
+LeyLine is an autonomous dual-agent AI gaming platform designed to play video games (Roblox, garbage truck simulators, open-world car games, Subway Surfers, NES classics) while running a dynamic, real-time AI live commentator powered by Google Gemini. Built with live streaming in mind (YouTube Live / OBS).
 
 ---
 
 ## Key Features
 
-- AI Gamer Agent: Real-time visual perception and tactical action planner powered by multimodal Gemini.
-- Controller Simulation: Low-latency virtual keyboard inputs using pynput with arrow and WASD layouts.
-- Live Telemetry HUD: Real-time OpenCV window rendering captured game frames, AI decision overlays, latency metrics, and tactical reasoning.
+- Autonomous Vehicle & Truck Agent: Tactical driving AI that steers, accelerates with sustained throttle pulses, explores roads, and collects targets (garbage, coins, delivery points).
+- DirectInput Hardware Controller: Kernel-level keyboard scan code simulation via Windows SendInput, guaranteeing 100% responsiveness in Chromium WebGL, Unity, and desktop games.
+- Real-Time Telemetry HUD: OpenCV display window rendering captured game frames, AI steering decisions, latency metrics, and tactical reasoning.
 - Screen Perception Engine: Sub-millisecond screen frame grabber and interactive ROI calibrator using mss and OpenCV.
 - Non-Blocking Architecture: Decoupled vision-action loop and commentary synthesis ensures zero steering lag.
 - Realistic Neural TTS: Natural esports voice output powered by edge-tts.
@@ -25,8 +25,8 @@ LeyLine is an autonomous dual-agent AI gaming platform designed to play video ga
 ```mermaid
 flowchart TD
     subgraph Target ["Game Environment"]
-        Screen["Game Screen (Browser / Emulator / Roblox)"]
-        InputHandler["OS Keyboard / Controller Inputs"]
+        Screen["Game Screen (Browser / Truck Simulator / Roblox)"]
+        DirectInput["Windows DirectInput Hardware Scan Codes"]
     end
 
     subgraph Core ["LeyLine Perception"]
@@ -34,7 +34,7 @@ flowchart TD
     end
 
     subgraph Agents ["Dual-Agent System"]
-        PlayerAgent["Player Agent (Gemini Vision)\n- Road / Obstacle detection\n- Decision JSON"]
+        TruckAgent["Truck / Driving Agent\n- Navigation & obstacle scan\n- Sustained throttle & steering"]
         CommentatorAgent["Commentator Agent (Gemini / Groq)\n- Event analysis\n- Persona-based play-by-play"]
     end
 
@@ -44,10 +44,11 @@ flowchart TD
     end
 
     Screen --> Capture
-    Capture -->|Downsampled frames| PlayerAgent
-    PlayerAgent -->|Simulated Keystroke| InputHandler
+    Capture -->|Downsampled frames| TruckAgent
+    TruckAgent -->|Hardware Scan Codes (W/A/S/D)| DirectInput
+    DirectInput --> Screen
     Capture -.->|Highlight snapshots| CommentatorAgent
-    PlayerAgent -.->|Action telemetry| CommentatorAgent
+    TruckAgent -.->|Driving telemetry| CommentatorAgent
     CommentatorAgent -->|Punchy commentary| TTS
     TTS --> StreamAudio
 ```
@@ -60,16 +61,14 @@ flowchart TD
 - Python 3.10 or higher
 - A Google Gemini API Key (Google AI Studio: https://aistudio.google.com/)
 
-### 2. Virtual Environment Creation & Activation
-
-Always activate the project virtual environment before running commands:
+### 2. Virtual Environment Setup
 
 ```bash
 # Clone the repository
 git clone https://github.com/UpsiDupsii/LeyLine-Engine.git
 cd LeyLine-Engine
 
-# Create the dedicated virtual environment (if not already created)
+# Create virtual environment (if not already present)
 python -m venv .venv
 
 # Activate in PowerShell (Windows):
@@ -77,14 +76,11 @@ python -m venv .venv
 
 # Activate in Command Prompt (cmd.exe):
 # .venv\Scripts\activate.bat
-
-# Activate in Linux/macOS:
-# source .venv/bin/activate
 ```
 
 ### 3. Install Dependencies
 
-With `.venv` active, install the project requirements:
+With `.venv` active, install dependencies:
 
 ```bash
 pip install -r requirements-dev.txt
@@ -106,53 +102,39 @@ GROQ_API_KEY=your_groq_api_key_here
 
 ---
 
-## How to Play Any Game Live (Step-by-Step)
+## Playing Garbage Truck & Driving Games (Step-by-Step)
 
-### Step 1: Open Your Target Game
-Open any browser car game, Subway Surfers, or Roblox in your browser or desktop window. Position it so it is visible on your screen.
+Truck driving and delivery games are optimal for AI navigation because vehicles have realistic physics, sustained acceleration, and tactical objectives (collecting garbage, delivering to depot, upgrading).
 
-### Step 2: Calibrate the Screen Region
+### Step 1: Open Your Truck Game
+Open your garbage truck or car game in Chrome or your desktop browser. Start the level so your truck is on the road.
+
+### Step 2: Calibrate the Game Region
 Tell LeyLine where your game window is located on screen:
 ```bash
-python -m leyline.vision --calibrate --preset car_game
+python -m leyline.vision --calibrate --preset truck_game --delay 4
 ```
-- A full-screen screenshot will appear.
-- Click and drag a rectangle around the game canvas (the road or playing field).
-- Press `ENTER` or `SPACE` to confirm and save the preset.
+- You will see a 4-second countdown in your terminal. Switch to your game window.
+- When the snapshot freezes on screen, click and drag a box around the gameplay area.
+- Press `ENTER` to save the preset.
 
-### Step 3: Run the AI Gamer (Safe Dry-Run Mode)
-Verify the AI's vision and thinking on your live game without it pressing any keys:
+### Step 3: Run the Autonomous Truck Driver
+Launch the autonomous driver with hardware DirectInput:
 ```bash
-python -m leyline.runner --preset car_game --dry-run
+python -m leyline.runner --preset truck_game --agent truck --layout wasd --fps 2.5 --hold-time 0.4
 ```
-- An OpenCV HUD window will pop up showing your real game feed.
-- The top banner displays the AI's live decisions (`ACTION: [LEFT]`, `[RIGHT]`, `[SPACE]`), inference latency, and tactical reasoning.
-
-### Step 4: Run Live Autonomous Play
-Let the AI actively take control of the keyboard:
-```bash
-# For games using Arrow keys:
-python -m leyline.runner --preset car_game --fps 2.0
-
-# For games using WASD keys:
-python -m leyline.runner --preset roblox --layout wasd --fps 2.0
-```
-- Focus on your game window.
-- Press `q` or `ESC` in the LeyLine HUD window at any time to safely stop and release all virtual keys.
-
-### Step 5: Offline Testing (Mock Mode)
-To test the HUD without an active game or API call:
-```bash
-python -m leyline.runner --mock
-```
+- A 3-second start countdown will run in the terminal. Click into your game window.
+- The AI driver will perceive the road, hold `W` to accelerate, use `A`/`D` to steer towards garbage, reverse (`S`) if facing an obstacle, and press `E` to interact.
+- Press `q` or `ESC` in the LeyLine HUD window at any time to immediately stop and release all keys.
 
 ---
 
 ## Development & CI
 
-This repository uses Ruff for linting and code formatting, and pytest for unit testing.
-
 ```bash
+# Run test suite
+python -m pytest tests/
+
 # Check linting
 python -m ruff check .
 
@@ -161,9 +143,6 @@ python -m ruff format --check .
 
 # Auto-fix formatting
 python -m ruff format .
-
-# Run test suite
-python -m pytest tests/
 ```
 
 ---
@@ -171,13 +150,14 @@ python -m pytest tests/
 ## Roadmap
 
 - [x] Initial project scaffolding & CI setup with Ruff
-- [x] Screen region capture & visual calibration tool
-- [x] Low-latency keyboard input controller (pynput)
-- [x] Gemini multimodal gamer agent (perception -> action loop)
+- [x] Screen region capture & visual calibration tool with countdown delay
+- [x] DirectInput hardware scan code keyboard controller (SendInput)
+- [x] Autonomous truck / vehicle driver agent with sustained throttle
+- [x] Subway Surfers fast reflex lane agent (sub-3ms)
 - [x] Real-time live HUD overlay runner (OpenCV)
 - [ ] Commentator agent with edge-tts live voice streaming
 - [ ] OBS virtual camera & audio routing for YouTube Live
-- [ ] Game-specific presets (Subway Surfers, Contra, Adventure Island, Roblox)
+- [ ] Game-specific presets (Truck Simulator, Subway Surfers, Contra, Roblox)
 
 ---
 
