@@ -18,17 +18,22 @@ class TruckDriverAgent:
     """Intelligent autonomous vehicle agent for objective collection, delivery, and driving games."""
 
     SYSTEM_PROMPT = (
-        "You are an AI driver controlling a garbage truck / delivery vehicle in a video game. "
-        "Your mission is to find garbage, collect items, navigate roads, and avoid crashing into walls. "
-        "Analyze the game frame and choose the best immediate driving maneuver from:\n"
-        "- FORWARD: Drive forward on open road\n"
-        "- FORWARD_LEFT: Steer left while accelerating\n"
-        "- FORWARD_RIGHT: Steer right while accelerating\n"
-        "- REVERSE: Back up if facing a wall or obstacle\n"
-        "- INTERACT: Press action key to pick up or dump garbage\n"
-        "- BRAKE: Stop vehicle\n\n"
-        "Respond ONLY with valid JSON in this exact schema:\n"
-        '{"action": "FORWARD", "reason": "Clear road ahead towards garbage container", "confidence": 0.95}'
+        "You are an elite autonomous AI driver playing a Garbage Truck Simulator / Collector game.\n"
+        "Your mission is to earn money by completing the gameplay loop:\n"
+        "1. EXPLORE & NAVIGATE: Follow roads, navigation arrows, or minimap indicators.\n"
+        "2. COLLECT GARBAGE: Identify garbage cans, trash bins (green, blue, black containers on sidewalks/driveways), "
+        "or glowing markers. Steer towards them. When immediately adjacent, trigger INTERACT.\n"
+        "3. UNLOAD & CASH IN: If carrying trash or directed towards the dump/recycling depot, drive into the unloading zone and trigger INTERACT.\n"
+        "4. AVOID OBSTACLES: Do not ram buildings or fences. If stuck or blocked, send REVERSE.\n\n"
+        "Available Actions:\n"
+        "- FORWARD: Accelerate straight on open road\n"
+        "- FORWARD_LEFT: Steer left while driving forward towards garbage/road\n"
+        "- FORWARD_RIGHT: Steer right while driving forward towards garbage/road\n"
+        "- REVERSE: Back up if facing a wall, fence, or dead end\n"
+        "- INTERACT: Pick up garbage or unload at recycling depot\n"
+        "- BRAKE: Stop immediately\n\n"
+        "Respond ONLY with valid JSON in this schema:\n"
+        '{"action": "FORWARD_LEFT", "target": "Garbage can on left sidewalk", "reason": "Approaching bin to collect", "confidence": 0.95}'
     )
 
     def __init__(
@@ -36,13 +41,14 @@ class TruckDriverAgent:
         api_key: str = GEMINI_API_KEY,
         model_name: str = "gemini-2.5-flash",
         mock_mode: bool = False,
-        timeout: float = 3.5,
+        timeout: float = 2.5,
     ) -> None:
         self.api_key = api_key
         self.model_name = model_name
         self.mock_mode = mock_mode
         self.timeout = timeout
         self.history: list[PlayerDecision] = []
+        self._consecutive_forwards = 0
 
     def _force_ipv4(self) -> None:
         try:
@@ -116,11 +122,11 @@ class TruckDriverAgent:
                 )
                 return self._parse_json(raw_text, elapsed_ms)
 
-            # API fallback: default to forward cruising
+            # API fallback: forward drive
             return PlayerDecision(
                 action=GameAction.FORWARD,
                 confidence=0.5,
-                reason=f"API status {resp.status_code}; continuing forward",
+                reason=f"API status {resp.status_code}; continuing forward cruise",
                 latency_ms=elapsed_ms,
             )
 
@@ -147,10 +153,14 @@ class TruckDriverAgent:
             except ValueError:
                 action = GameAction.FORWARD
 
+            target = parsed.get("target", "")
+            base_reason = str(parsed.get("reason", "Navigating vehicle"))
+            full_reason = f"[{target}] {base_reason}" if target else base_reason
+
             decision = PlayerDecision(
                 action=action,
                 confidence=float(parsed.get("confidence", 0.9)),
-                reason=str(parsed.get("reason", "Navigating vehicle")),
+                reason=full_reason,
                 latency_ms=latency_ms,
             )
             self.history.append(decision)

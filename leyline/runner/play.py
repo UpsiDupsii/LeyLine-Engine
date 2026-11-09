@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+import threading
 import time
 
 import cv2
@@ -19,7 +20,7 @@ from leyline.vision.window import WindowManager
 
 
 class GameRunner:
-    """Orchestrates screen perception, AI decision-making, and keyboard input execution."""
+    """Orchestrates non-blocking screen perception, AI decision-making, and fluid hardware driving."""
 
     def __init__(
         self,
@@ -30,7 +31,7 @@ class GameRunner:
         dry_run: bool = False,
         mock_mode: bool = False,
         fps: float = 3.0,
-        hold_time: float = 0.3,
+        continuous: bool = True,
     ) -> None:
         self.preset_name = preset_name
         self.window_title = window_title
@@ -39,7 +40,7 @@ class GameRunner:
         self.dry_run = dry_run
         self.mock_mode = mock_mode
         self.fps = max(0.5, fps)
-        self.hold_time = hold_time
+        self.continuous = continuous
         self.calibrator = RegionCalibrator()
 
         # Determine capture region
@@ -56,7 +57,6 @@ class GameRunner:
             self.region = config.region if config else None
 
         self.engine = ScreenCaptureEngine(default_region=self.region, mock_mode=mock_mode)
-        # Use DirectInputController with hardware scan codes for 100% browser & game compatibility
         self.controller = DirectInputController(layout=layout, mock_mode=(dry_run or mock_mode))
 
         # Select agent brain
@@ -69,6 +69,13 @@ class GameRunner:
         else:
             self.agent = GamerAgent(mock_mode=mock_mode)
 
+        # Threading state for decoupled non-blocking driving
+        self._running = False
+        self._latest_decision: PlayerDecision | None = None
+        self._decision_lock = threading.Lock()
+        self._latest_frame: np.ndarray | None = None
+        self._frame_lock = threading.Lock()
+
     def _countdown(self) -> None:
         """Countdown timer to allow focusing on the game window."""
         if self.window_title:
@@ -79,52 +86,72 @@ class GameRunner:
         for i in range(3, 0, -1):
             print(f"  [{i}] ...")
             time.sleep(1.0)
-        print("  [GO!] Autonomous AI is now playing!")
+        print("  [GO!] Autonomous AI is now driving smoothly!")
         print("-----------------------------------------------------\n")
 
+    def _inference_worker(self) -> None:
+        """Background thread executing visual perception without stalling vehicle physics."""
+        interval = 1.0 / self.fps
+        while self._running:
+            loop_start = time.time()
+
+            with self._frame_lock:
+                frame = self._latest_frame.copy() if self._latest_frame is not None else None
+
+            if frame is not None:
+                if isinstance(self.agent, SubwayReflexAgent):
+                    decision = self.agent.decide_action_from_frame(frame)
+                elif isinstance(self.agent, TruckDriverAgent):
+                    frame_bytes = self.engine.preprocess_for_agent(frame, target_size=(512, 512))
+                    decision = self.agent.decide_driving_action(frame_bytes)
+                else:
+                    frame_bytes = self.engine.preprocess_for_agent(frame, target_size=(512, 512))
+                    decision = self.agent.decide_action(frame_bytes)
+
+                with self._decision_lock:
+                    self._latest_decision = decision
+
+                # Apply active driving control immediately
+                if not self.dry_run:
+                    if decision.action == GameAction.INTERACT:
+                        self.controller.tap_key("e" if self.layout == "wasd" else "space")
+                    elif self.continuous:
+                        # Non-blocking continuous throttle + steering
+                        self.controller.set_active_action(decision.action)
+                    else:
+                        self.controller.execute_action(decision.action, duration=0.25)
+
+            elapsed = time.time() - loop_start
+            sleep_time = interval - elapsed
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+
     def run(self) -> None:
-        """Run the main perception-decision-action loop with live OpenCV HUD."""
-        window_name = f"LeyLine Agent Live HUD - [{self.agent_type.upper()}] (Press 'q' to stop)"
+        """Run the main render and capture loop with live OpenCV HUD."""
+        window_name = f"LeyLine Live HUD - [{self.agent_type.upper()}] (Press 'q' to stop)"
         cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(window_name, 720, 520)
 
-        interval = 1.0 / self.fps
-        last_decision_time = 0.0
-        current_decision = None
-
         if not self.mock_mode:
             self._countdown()
+
+        self._running = True
+        worker_thread = threading.Thread(target=self._inference_worker, daemon=True)
+        worker_thread.start()
+
+        print(f"Running mode: {self.agent_type.upper()} | Continuous throttle: {self.continuous}")
 
         try:
             while True:
                 loop_start = time.time()
                 frame = self.engine.grab_frame()
 
-                # Trigger decision
-                now = time.time()
-                if now - last_decision_time >= interval:
-                    if isinstance(self.agent, SubwayReflexAgent):
-                        current_decision = self.agent.decide_action_from_frame(frame)
-                    elif isinstance(self.agent, TruckDriverAgent):
-                        frame_bytes = self.engine.preprocess_for_agent(
-                            frame, target_size=(512, 512)
-                        )
-                        current_decision = self.agent.decide_driving_action(frame_bytes)
-                    else:
-                        frame_bytes = self.engine.preprocess_for_agent(
-                            frame, target_size=(512, 512)
-                        )
-                        current_decision = self.agent.decide_action(frame_bytes)
-                    last_decision_time = now
+                with self._frame_lock:
+                    self._latest_frame = frame
 
-                    # Execute hardware keystroke action
-                    if current_decision and current_decision.action != GameAction.NONE:
-                        if not self.dry_run:
-                            self.controller.execute_action(
-                                current_decision.action, duration=self.hold_time
-                            )
+                with self._decision_lock:
+                    current_decision = self._latest_decision
 
-                # Render HUD
                 hud_frame = self._render_hud(frame, current_decision)
                 cv2.imshow(window_name, hud_frame)
 
@@ -139,6 +166,7 @@ class GameRunner:
                     time.sleep(sleep_time)
 
         finally:
+            self._running = False
             self.controller.release_all()
             self.engine.close()
             cv2.destroyAllWindows()
@@ -149,7 +177,6 @@ class GameRunner:
         hud = frame.copy()
         h, w = hud.shape[:2]
 
-        # Draw 3-lane guide if in reflex mode
         if self.agent_type == "reflex":
             lane_w = w // 3
             cv2.line(hud, (lane_w, 0), (lane_w, h), (60, 60, 60), 1)
@@ -167,7 +194,7 @@ class GameRunner:
         cv2.rectangle(hud, (0, 0), (w, 75), (20, 20, 20), -1)
 
         # Title and mode
-        mode_label = "DRY-RUN (NO KEYS)" if self.dry_run else "LIVE AUTONOMOUS CONTROL"
+        mode_label = "DRY-RUN (NO KEYS)" if self.dry_run else "LIVE CONTINUOUS DRIVE"
         status_color = (0, 165, 255) if self.dry_run else (0, 255, 0)
         cv2.putText(
             hud,
@@ -233,7 +260,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         choices=["truck", "reflex", "gemini"],
         default="truck",
-        help="Agent brain: 'truck' (vehicle navigation with acceleration pulses), 'reflex' (sub-3ms lane runner), or 'gemini' (standard VLM). Default: 'truck'.",
+        help="Agent brain: 'truck' (continuous throttle + garbage collection), 'reflex' (sub-3ms lane runner), or 'gemini' (standard VLM). Default: 'truck'.",
     )
     parser.add_argument(
         "--layout",
@@ -243,10 +270,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Key mapping layout. Default: 'wasd' (standard for truck & 3D car games).",
     )
     parser.add_argument(
-        "--hold-time",
-        type=float,
-        default=0.35,
-        help="Key hold duration in seconds per acceleration pulse. Default: 0.35s.",
+        "--pulse",
+        action="store_true",
+        help="Use pulsing throttle instead of smooth continuous throttle.",
     )
     parser.add_argument(
         "--dry-run",
@@ -261,8 +287,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fps",
         type=float,
-        default=2.5,
-        help="Perception decision rate in decisions per second. Default: 2.5.",
+        default=3.0,
+        help="Inference query rate in decisions per second. Default: 3.0.",
     )
     return parser
 
@@ -280,7 +306,7 @@ def main() -> None:
         dry_run=args.dry_run,
         mock_mode=args.mock,
         fps=args.fps,
-        hold_time=args.hold_time,
+        continuous=(not args.pulse),
     )
     try:
         runner.run()

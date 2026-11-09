@@ -2,6 +2,7 @@
 
 import ctypes
 import os
+import threading
 import time
 from ctypes import wintypes
 
@@ -15,7 +16,6 @@ KEYEVENTF_EXTENDEDKEY = 0x0001
 
 # Hardware Scan Codes (DirectInput)
 SCAN_CODES: dict[str, tuple[int, bool]] = {
-    # Key: (scancode, is_extended)
     "w": (0x11, False),
     "a": (0x1E, False),
     "s": (0x1F, False),
@@ -81,6 +81,7 @@ class DirectInputController:
         self.mock_mode = mock_mode or os.name != "nt"
         self._pressed_keys: set[str] = set()
         self._user32 = ctypes.windll.user32 if os.name == "nt" else None
+        self._lock = threading.Lock()
 
     def _send_key_event(self, key_name: str, key_up: bool = False) -> bool:
         if self.mock_mode or not self._user32:
@@ -115,7 +116,6 @@ class DirectInputController:
     def _resolve_action_keys(self, action: GameAction | str) -> list[str]:
         act = action if isinstance(action, GameAction) else GameAction(action.upper())
 
-        # Map to wasd or arrows
         if self.layout == "wasd":
             mapping: dict[GameAction, list[str]] = {
                 GameAction.FORWARD: ["w"],
@@ -149,32 +149,53 @@ class DirectInputController:
 
         return mapping.get(act, [])
 
+    def set_active_action(self, action: GameAction | str) -> None:
+        """Immediately update the physical keys held down without sleep blocks.
+
+        Maintains persistent throttle and changes steering dynamically.
+        """
+        with self._lock:
+            target_keys = set(self._resolve_action_keys(action))
+
+            # Keys to release
+            to_release = self._pressed_keys - target_keys
+            for k in to_release:
+                self._send_key_event(k, key_up=True)
+                self._pressed_keys.remove(k)
+
+            # Keys to press
+            to_press = target_keys - self._pressed_keys
+            for k in to_press:
+                self._send_key_event(k, key_up=False)
+                self._pressed_keys.add(k)
+
+    def tap_key(self, key_name: str, duration: float = 0.08) -> None:
+        """Briefly tap a single key (e.g. for interacting or honking)."""
+        with self._lock:
+            self._send_key_event(key_name, key_up=False)
+            time.sleep(duration)
+            self._send_key_event(key_name, key_up=True)
+
     def press_keys(self, keys: list[str]) -> None:
         """Hold down multiple keys simultaneously."""
-        for k in keys:
-            self._send_key_event(k, key_up=False)
-            self._pressed_keys.add(k)
+        with self._lock:
+            for k in keys:
+                self._send_key_event(k, key_up=False)
+                self._pressed_keys.add(k)
 
     def release_keys(self, keys: list[str]) -> None:
         """Release specified keys."""
-        for k in keys:
-            self._send_key_event(k, key_up=True)
-            self._pressed_keys.discard(k)
+        with self._lock:
+            for k in keys:
+                self._send_key_event(k, key_up=True)
+                self._pressed_keys.discard(k)
 
     def execute_action(
         self,
         command: ActionCommand | GameAction | str,
         duration: float | None = None,
     ) -> bool:
-        """Execute a sustained vehicular maneuver (e.g. forward + turn).
-
-        Args:
-            command: ActionCommand, GameAction, or action string.
-            duration: Key hold duration in seconds. Overrides command duration if set.
-
-        Returns:
-            bool: True if action was executed.
-        """
+        """Execute a sustained vehicular maneuver."""
         if isinstance(command, ActionCommand):
             action = command.action
             hold_time = duration if duration is not None else command.duration
@@ -186,24 +207,33 @@ class DirectInputController:
         if not keys:
             return False
 
-        # Release any old keys not needed for this action
-        for k in list(self._pressed_keys):
-            if k not in keys:
+        with self._lock:
+            for k in list(self._pressed_keys):
+                if k not in keys:
+                    self._send_key_event(k, key_up=True)
+                    self._pressed_keys.discard(k)
+
+            for k in keys:
+                self._send_key_event(k, key_up=False)
+                self._pressed_keys.add(k)
+
+        time.sleep(hold_time)
+
+        with self._lock:
+            for k in keys:
                 self._send_key_event(k, key_up=True)
                 self._pressed_keys.discard(k)
 
-        # Press keys and hold for duration
-        self.press_keys(keys)
-        time.sleep(hold_time)
-        self.release_keys(keys)
         return True
 
     def release_all(self) -> None:
         """Emergency release for all currently held keys."""
-        for k in list(self._pressed_keys):
-            self._send_key_event(k, key_up=True)
-        self._pressed_keys.clear()
+        with self._lock:
+            for k in list(self._pressed_keys):
+                self._send_key_event(k, key_up=True)
+            self._pressed_keys.clear()
 
     @property
     def active_keys(self) -> set[str]:
-        return set(self._pressed_keys)
+        with self._lock:
+            return set(self._pressed_keys)
