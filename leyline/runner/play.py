@@ -1,4 +1,4 @@
-"""Live autonomous gameplay runner with real-time visual HUD telemetry."""
+"""Live autonomous gameplay runner with real-time visual HUD telemetry and AI commentary."""
 
 from __future__ import annotations
 
@@ -15,6 +15,13 @@ from leyline.agents.models import PlayerDecision
 from leyline.agents.player import GamerAgent
 from leyline.agents.reflex import SubwayReflexAgent
 from leyline.agents.truck_agent import TruckDriverAgent
+from leyline.audio.models import (
+    CommentatorPersona,
+    GameEvent,
+    GameEventType,
+    VoiceConfig,
+)
+from leyline.audio.orchestrator import CommentaryOrchestrator
 from leyline.controller.direct_input import DirectInputController
 from leyline.controller.models import GameAction
 from leyline.controller.mouse import MouseController
@@ -40,6 +47,9 @@ class GameRunner:
         settle_time: float = 2.2,
         hover_delay: float = 0.25,
         align_tolerance: int = 10,
+        enable_commentary: bool = True,
+        voice: str = "en-US-ChristopherNeural",
+        persona: str = "hype",
     ) -> None:
         self.preset_name = preset_name
         self.window_title = window_title
@@ -52,6 +62,9 @@ class GameRunner:
         self.settle_time = max(0.5, settle_time)
         self.hover_delay = max(0.05, hover_delay)
         self.align_tolerance = align_tolerance
+        self.enable_commentary = enable_commentary
+        self.voice = voice
+        self.persona = persona
         self.calibrator = RegionCalibrator()
 
         # Determine capture region
@@ -83,6 +96,17 @@ class GameRunner:
         else:
             self.agent = GamerAgent(mock_mode=mock_mode)
 
+        # Asynchronous Neural Voice Commentary Engine
+        self.commentary: CommentaryOrchestrator | None = None
+        if self.enable_commentary:
+            voice_cfg = VoiceConfig(voice_name=self.voice, rate="+5%")
+            self.commentary = CommentaryOrchestrator(
+                voice_config=voice_cfg,
+                persona=CommentatorPersona(self.persona),
+                cooldown_seconds=3.0,
+                mock_mode=mock_mode,
+            )
+
         # Threading state
         self._running = False
         self._latest_decision: PlayerDecision | DropDecision | None = None
@@ -100,6 +124,14 @@ class GameRunner:
         """Countdown timer to allow focusing on the game window."""
         if self.window_title:
             WindowManager.focus_window(self.window_title)
+
+        if self.commentary:
+            self.commentary.post_event(
+                GameEvent(
+                    event_type=GameEventType.GAME_START,
+                    details=f"Starting autonomous run in {self.agent_type.upper()}",
+                )
+            )
 
         print("\n-----------------------------------------------------")
         print("Starting in 3 seconds! Focus on the game window now:")
@@ -125,6 +157,36 @@ class GameRunner:
 
                 with self._decision_lock:
                     self._latest_decision = decision
+
+                # Emit commentary event based on game state
+                if self.commentary:
+                    active_tier = state.hanging_ball.color_name if state.hanging_ball else "Ball"
+                    max_height = max(state.column_heights) if state.column_heights else 0.0
+                    if max_height > 0.75:
+                        ev = GameEvent(
+                            event_type=GameEventType.RED_LINE_DANGER,
+                            ball_tier=active_tier,
+                            target_x=decision.drop_x,
+                            danger_level=max_height,
+                            details="Pile height dangerously near red line limit",
+                        )
+                    elif "Direct match" in decision.target_match:
+                        ev = GameEvent(
+                            event_type=GameEventType.MATCH_MERGE,
+                            ball_tier=active_tier,
+                            target_x=decision.drop_x,
+                            danger_level=max_height,
+                            details=decision.reason,
+                        )
+                    else:
+                        ev = GameEvent(
+                            event_type=GameEventType.VALLEY_DROP,
+                            ball_tier=active_tier,
+                            target_x=decision.drop_x,
+                            danger_level=max_height,
+                            details=decision.reason,
+                        )
+                    self.commentary.post_event(ev)
 
                 if not self.dry_run:
                     # Phase 2: Aim (Move cursor to candidate drop position)
@@ -219,6 +281,9 @@ class GameRunner:
         if not self.mock_mode:
             self._countdown()
 
+        if self.commentary:
+            self.commentary.start()
+
         self._running = True
         target_worker = (
             self._puzzle_worker if self.agent_type == "ball_guys" else self._action_worker
@@ -227,6 +292,8 @@ class GameRunner:
         worker_thread.start()
 
         print(f"Running mode: {self.agent_type.upper()} | Preset: {self.preset_name}")
+        if self.commentary:
+            print(f"AI Commentator Active | Voice: {self.voice} | Persona: {self.persona.upper()}")
 
         try:
             while True:
@@ -254,6 +321,8 @@ class GameRunner:
 
         finally:
             self._running = False
+            if self.commentary:
+                self.commentary.stop()
             self.controller.release_all()
             self.engine.close()
             cv2.destroyAllWindows()
@@ -369,7 +438,21 @@ class GameRunner:
                     cv2.LINE_AA,
                 )
 
-            # Bottom reasoning box
+        # Bottom live commentary subtitle banner
+        caster_line = self.commentary.current_text if self.commentary else ""
+        if caster_line:
+            cv2.rectangle(hud, (0, h - 45), (w, h), (10, 10, 10), -1)
+            cv2.putText(
+                hud,
+                f"CASTER [{self.persona.upper()}]: {caster_line[:70]}",
+                (10, h - 15),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.52,
+                (0, 255, 255),
+                1,
+                cv2.LINE_AA,
+            )
+        elif decision:
             cv2.rectangle(hud, (0, h - 45), (w, h), (10, 10, 10), -1)
             reason_text = decision.reason[:75]
             cv2.putText(
@@ -451,6 +534,24 @@ def build_parser() -> argparse.ArgumentParser:
         default=3.0,
         help="Inference query rate in decisions per second for action games. Default: 3.0.",
     )
+    parser.add_argument(
+        "--no-commentary",
+        action="store_true",
+        help="Disable asynchronous neural voice commentary.",
+    )
+    parser.add_argument(
+        "--voice",
+        type=str,
+        default="en-US-ChristopherNeural",
+        help="Voice ID for commentary (e.g. en-US-ChristopherNeural, en-US-GuyNeural). Default: 'en-US-ChristopherNeural'.",
+    )
+    parser.add_argument(
+        "--persona",
+        type=str,
+        choices=["hype", "analytical", "sarcastic", "casual"],
+        default="hype",
+        help="Commentator personality style. Default: 'hype'.",
+    )
     return parser
 
 
@@ -470,6 +571,9 @@ def main() -> None:
         settle_time=args.settle_time,
         hover_delay=args.hover_delay,
         align_tolerance=args.align_tolerance,
+        enable_commentary=(not args.no_commentary),
+        voice=args.voice,
+        persona=args.persona,
     )
     try:
         runner.run()
