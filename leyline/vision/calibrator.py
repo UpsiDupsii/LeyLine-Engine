@@ -63,14 +63,27 @@ class RegionCalibrator:
         self,
         preset_name: str = "default",
         target_fps: float = 2.0,
+        delay: float = 4.0,
     ) -> CalibrationConfig | None:
         """Launch an interactive window to select the game region on screen.
+
+        Args:
+            preset_name: Identifier to save the preset under.
+            target_fps: Recommended FPS rate for this preset.
+            delay: Countdown seconds before screen grab to allow switching to game tab.
 
         Instructions:
             - Click and drag a rectangle over the target game area.
             - Press ENTER or SPACE to confirm the selection.
             - Press 'c' to cancel without saving.
         """
+        if delay > 0:
+            print(f"\nSwitch to your game tab now! Capturing screen in {int(delay)} seconds...")
+            for remaining in range(int(delay), 0, -1):
+                print(f"  [{remaining}] Switch to game window...")
+                time.sleep(1.0)
+            print("  [SNAPSHOT CAPTURED!] Drag a box around the game area in the pop-up window.")
+
         engine = ScreenCaptureEngine()
         full_frame = engine.grab_frame()
         engine.close()
