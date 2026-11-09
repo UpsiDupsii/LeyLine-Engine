@@ -49,10 +49,11 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 
-# Screen captures / temporary debug artifacts
+# Screen captures / temporary debug artifacts / audio
 recordings/
 debug_frames/
 temp/
+output/
 *.mp3
 *.wav
 
