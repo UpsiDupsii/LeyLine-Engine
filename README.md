@@ -4,15 +4,16 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-LeyLine is an autonomous dual-agent AI gaming platform designed to play video games (Roblox, garbage truck simulators, open-world car games, Subway Surfers, NES classics) while running a dynamic, real-time AI live commentator powered by Google Gemini. Built with live streaming in mind (YouTube Live / OBS).
+LeyLine is an autonomous dual-agent AI gaming platform designed to play video games (Ball Guys / Suika merge puzzles, Roblox, vehicle simulators, Subway Surfers, NES classics) while running a dynamic, real-time AI live commentator powered by Google Gemini. Built with live streaming in mind (YouTube Live / OBS).
 
 ---
 
 ## Key Features
 
-- Autonomous Vehicle & Truck Agent: Tactical driving AI that steers, accelerates with sustained throttle pulses, explores roads, and collects targets (garbage, coins, delivery points).
-- DirectInput Hardware Controller: Kernel-level keyboard scan code simulation via Windows SendInput, guaranteeing 100% responsiveness in Chromium WebGL, Unity, and desktop games.
-- Real-Time Telemetry HUD: OpenCV display window rendering captured game frames, AI steering decisions, latency metrics, and tactical reasoning.
+- Ball Guys / Suika Merge Solver: Physics-aware puzzle solver that analyzes hanging balls and resting container piles, calculates optimal horizontal drop coordinates (`drop_x`), and positions cursor clicks to trigger cascading merges.
+- Autonomous Vehicle & Truck Agent: Tactical driving AI with continuous hardware throttle and obstacle avoidance.
+- DirectInput & Hardware Mouse Controllers: Kernel-level mouse positioning, clicks, and keyboard scan codes via Windows SendInput for 100% browser canvas compatibility.
+- Real-Time Telemetry HUD: OpenCV display window rendering captured game frames, drop trajectory guide lines, latency metrics, and tactical reasoning.
 - Screen Perception Engine: Sub-millisecond screen frame grabber and interactive ROI calibrator using mss and OpenCV.
 - Non-Blocking Architecture: Decoupled vision-action loop and commentary synthesis ensures zero steering lag.
 - Realistic Neural TTS: Natural esports voice output powered by edge-tts.
@@ -25,8 +26,8 @@ LeyLine is an autonomous dual-agent AI gaming platform designed to play video ga
 ```mermaid
 flowchart TD
     subgraph Target ["Game Environment"]
-        Screen["Game Screen (Browser / Truck Simulator / Roblox)"]
-        DirectInput["Windows DirectInput Hardware Scan Codes"]
+        Screen["Game Screen (Ball Guys / Browser / Roblox)"]
+        Inputs["Windows Hardware Mouse & Keyboard Inputs"]
     end
 
     subgraph Core ["LeyLine Perception"]
@@ -34,7 +35,7 @@ flowchart TD
     end
 
     subgraph Agents ["Dual-Agent System"]
-        TruckAgent["Truck / Driving Agent\n- Navigation & obstacle scan\n- Sustained throttle & steering"]
+        BallGuysAgent["Ball Guys / Suika Solver\n- Hanging ball identification\n- Pile density & merge matching\n- Drop coordinate calculation"]
         CommentatorAgent["Commentator Agent (Gemini / Groq)\n- Event analysis\n- Persona-based play-by-play"]
     end
 
@@ -44,11 +45,11 @@ flowchart TD
     end
 
     Screen --> Capture
-    Capture -->|Downsampled frames| TruckAgent
-    TruckAgent -->|Hardware Scan Codes (W/A/S/D)| DirectInput
-    DirectInput --> Screen
+    Capture -->|Downsampled container frames| BallGuysAgent
+    BallGuysAgent -->|Mouse Move & Click at drop_x| Inputs
+    Inputs --> Screen
     Capture -.->|Highlight snapshots| CommentatorAgent
-    TruckAgent -.->|Driving telemetry| CommentatorAgent
+    BallGuysAgent -.->|Merge telemetry| CommentatorAgent
     CommentatorAgent -->|Punchy commentary| TTS
     TTS --> StreamAudio
 ```
@@ -102,30 +103,30 @@ GROQ_API_KEY=your_groq_api_key_here
 
 ---
 
-## Playing Garbage Truck & Driving Games (Step-by-Step)
+## Playing "Ball Guys" Merge Puzzle (Step-by-Step)
 
-Truck driving and delivery games are optimal for AI navigation because vehicles have realistic physics, sustained acceleration, and tactical objectives (collecting garbage, delivering to depot, upgrading).
+Ball Guys is a physics drop puzzle (similar to the Watermelon / Suika game). Dropping identical balls together merges them into larger balls (Small Blue -> Medium Purple -> King Ball). The goal is to maximize mergers while keeping the pile below the red dashed game-over line.
 
-### Step 1: Open Your Truck Game
-Open your garbage truck or car game in Chrome or your desktop browser. Start the level so your truck is on the road.
+### Step 1: Open Ball Guys in Your Browser
+Open Ball Guys in Chrome or your browser. Position the browser window so the blue container is visible on your screen.
 
-### Step 2: Calibrate the Game Region
-Tell LeyLine where your game window is located on screen:
+### Step 2: Calibrate the Container Box
+Tell LeyLine where the blue container is located:
 ```bash
-python -m leyline.vision --calibrate --preset truck_game --delay 4
+python -m leyline.vision --calibrate --preset ball_guys --delay 4
 ```
-- You will see a 4-second countdown in your terminal. Switch to your game window.
-- When the snapshot freezes on screen, click and drag a box around the gameplay area.
+- During the 4-second countdown, switch to your Ball Guys browser window.
+- When the screen freezes, click and drag a rectangle strictly around the **blue container cup** (from the left wall to the right wall, including the red dashed line at the top).
 - Press `ENTER` to save the preset.
 
-### Step 3: Run the Autonomous Truck Driver
-Launch the autonomous driver with hardware DirectInput:
+### Step 3: Run the Autonomous Puzzle Solver
 ```bash
-python -m leyline.runner --preset truck_game --agent truck --layout wasd --fps 2.5 --hold-time 0.4
+python -m leyline.runner --preset ball_guys --agent ball_guys --settle-time 2.0
 ```
-- A 3-second start countdown will run in the terminal. Click into your game window.
-- The AI driver will perceive the road, hold `W` to accelerate, use `A`/`D` to steer towards garbage, reverse (`S`) if facing an obstacle, and press `E` to interact.
-- Press `q` or `ESC` in the LeyLine HUD window at any time to immediately stop and release all keys.
+- A 3-second countdown will display: `[3]... [2]... [1]... [GO!]`. Focus on the Ball Guys window.
+- The AI will evaluate the current hanging ball and resting pile, calculate the optimal drop position `drop_x`, move the mouse, click to release the ball, wait for physics to settle, and repeat.
+- The HUD window will display the vertical yellow drop guide line, the target merge match, and latency telemetry.
+- Press `q` or `ESC` in the HUD window to stop at any time.
 
 ---
 
@@ -152,12 +153,14 @@ python -m ruff format .
 - [x] Initial project scaffolding & CI setup with Ruff
 - [x] Screen region capture & visual calibration tool with countdown delay
 - [x] DirectInput hardware scan code keyboard controller (SendInput)
+- [x] Hardware mouse controller for click-to-drop puzzle games
+- [x] Ball Guys / Suika merge puzzle solver agent
 - [x] Autonomous truck / vehicle driver agent with sustained throttle
 - [x] Subway Surfers fast reflex lane agent (sub-3ms)
-- [x] Real-time live HUD overlay runner (OpenCV)
+- [x] Real-time live HUD overlay runner with drop line visualizations (OpenCV)
 - [ ] Commentator agent with edge-tts live voice streaming
 - [ ] OBS virtual camera & audio routing for YouTube Live
-- [ ] Game-specific presets (Truck Simulator, Subway Surfers, Contra, Roblox)
+- [ ] Game-specific presets (Ball Guys, Truck Simulator, Subway Surfers, Roblox)
 
 ---
 
