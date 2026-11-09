@@ -47,6 +47,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Name of the game preset (e.g. subway_surfers, roblox, contra). Default: 'default'.",
     )
     parser.add_argument(
+        "--delay",
+        type=float,
+        default=4.0,
+        help="Countdown seconds before screen capture to allow switching to game tab. Default: 4.0.",
+    )
+    parser.add_argument(
         "--fps",
         type=float,
         default=10.0,
@@ -115,9 +121,11 @@ def main() -> None:
 
     if args.calibrate:
         print(f"Starting interactive calibration for preset '{args.preset}'...")
-        print("A screenshot will open. Drag a bounding box over the game window.")
-        print("Press ENTER to save, or 'c' to cancel.")
-        result = calibrator.calibrate_interactive(preset_name=args.preset, target_fps=args.fps)
+        result = calibrator.calibrate_interactive(
+            preset_name=args.preset,
+            target_fps=args.fps,
+            delay=args.delay,
+        )
         if result:
             print(
                 f"Successfully calibrated and saved preset '{result.preset_name}': "
