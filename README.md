@@ -1,24 +1,24 @@
-# LeyLine-Engine 🎮🎙️
+# LeyLine-Engine
 
 [![CI](https://github.com/UpsiDupsii/LeyLine-Engine/actions/workflows/ci.yml/badge.svg)](https://github.com/UpsiDupsii/LeyLine-Engine/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 
-**LeyLine** is an autonomous dual-agent AI gaming platform designed to play video games (Roblox, Subway Surfers, NES classics like Contra & Adventure Island) while running a dynamic, real-time AI live commentator powered by Google Gemini. Built with live streaming in mind (YouTube Live / OBS).
+LeyLine is an autonomous dual-agent AI gaming platform designed to play video games (Roblox, Subway Surfers, NES classics like Contra and Adventure Island) while running a dynamic, real-time AI live commentator powered by Google Gemini. Built with live streaming in mind (YouTube Live / OBS).
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
-- **🎮 AI Gamer Agent**: Real-time perception and gameplay decision engine powered by Gemini multimodal vision models.
-- **🎙️ AI Shoutcaster Agent**: Asynchronous, witty esports commentator that reacts dynamically to game highlights and clutch plays.
-- **⚡ Non-Blocking Architecture**: Decoupled vision-action loop and commentary synthesis ensures zero steering lag.
-- **🔊 Realistic Neural TTS**: Natural esports voice output powered by `edge-tts`.
-- **📺 Stream-Ready**: Designed to output video and audio layers directly compatible with OBS Studio for YouTube Live streams.
+- AI Gamer Agent: Real-time perception and gameplay decision engine powered by Gemini multimodal vision models.
+- AI Shoutcaster Agent: Asynchronous, witty esports commentator that reacts dynamically to game highlights and clutch plays.
+- Non-Blocking Architecture: Decoupled vision-action loop and commentary synthesis ensures zero steering lag.
+- Realistic Neural TTS: Natural esports voice output powered by edge-tts.
+- Stream-Ready: Designed to output video and audio layers directly compatible with OBS Studio for YouTube Live streams.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
 flowchart TD
@@ -52,11 +52,11 @@ flowchart TD
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
 ### 1. Prerequisites
 - Python 3.10 or higher
-- A Google Gemini API Key ([Google AI Studio](https://aistudio.google.com/))
+- A Google Gemini API Key (Google AI Studio: https://aistudio.google.com/)
 
 ### 2. Installation
 
@@ -89,35 +89,35 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 ---
 
-## 🛠️ Development & CI
+## Development & CI
 
-This repository uses [Ruff](https://astral.sh/ruff) for linting and code formatting.
+This repository uses Ruff for linting and code formatting.
 
 ```bash
 # Check linting
-ruff check .
+python -m ruff check .
 
 # Check formatting
-ruff format --check .
+python -m ruff format --check .
 
 # Auto-fix formatting
-ruff format .
+python -m ruff format .
 ```
 
 ---
 
-## 🗺️ Roadmap
+## Roadmap
 
 - [x] Initial project scaffolding & CI setup with Ruff
 - [ ] Screen region capture & visual calibration tool
-- [ ] Keyboard input controller (`pynput`)
+- [ ] Keyboard input controller (pynput)
 - [ ] Gemini multimodal gamer agent (perception -> action loop)
-- [ ] Commentator agent with `edge-tts` live voice streaming
+- [ ] Commentator agent with edge-tts live voice streaming
 - [ ] OBS virtual camera & audio routing for YouTube Live
 - [ ] Game-specific presets (Subway Surfers, Contra, Adventure Island, Roblox)
 
 ---
 
-## 📄 License
+## License
 
 MIT License. See [LICENSE](LICENSE) for details.
