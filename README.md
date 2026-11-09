@@ -10,8 +10,9 @@ LeyLine is an autonomous dual-agent AI gaming platform designed to play video ga
 
 ## Key Features
 
-- AI Gamer Agent: Real-time perception and gameplay decision engine powered by Gemini multimodal vision models.
-- AI Shoutcaster Agent: Asynchronous, witty esports commentator that reacts dynamically to game highlights and clutch plays.
+- AI Gamer Agent: Real-time visual perception and tactical action planner powered by multimodal Gemini.
+- Controller Simulation: Low-latency virtual keyboard inputs using pynput with arrow and WASD layouts.
+- Live Telemetry HUD: Real-time OpenCV window rendering captured game frames, AI decision overlays, latency metrics, and tactical reasoning.
 - Screen Perception Engine: Sub-millisecond screen frame grabber and interactive ROI calibrator using mss and OpenCV.
 - Non-Blocking Architecture: Decoupled vision-action loop and commentary synthesis ensures zero steering lag.
 - Realistic Neural TTS: Natural esports voice output powered by edge-tts.
@@ -86,6 +87,7 @@ cp .env.example .env
 Edit `.env`:
 ```env
 GEMINI_API_KEY=your_gemini_api_key_here
+GROQ_API_KEY=your_groq_api_key_here
 ```
 
 ---
@@ -102,8 +104,8 @@ python -m leyline.vision --monitors
 ### 2. Interactive Region Calibration
 Launch the calibrator to select the game window on your screen:
 ```bash
-# Calibrate for a specific game preset (e.g. roblox, subway_surfers, retro)
-python -m leyline.vision --calibrate --preset roblox
+# Calibrate for a specific game preset (e.g. car_game, roblox, subway_surfers)
+python -m leyline.vision --calibrate --preset car_game
 ```
 Instructions:
 - A full-screen snapshot will appear.
@@ -111,22 +113,34 @@ Instructions:
 - Press `ENTER` or `SPACE` to confirm and save the preset.
 - Press `c` to cancel.
 
-### 3. Manual Coordinate Preset
-```bash
-python -m leyline.vision --manual --preset subway_surfers --left 100 --top 100 --width 640 --height 480
-```
-
-### 4. List Saved Presets
-```bash
-python -m leyline.vision --list-presets
-```
-
-### 5. Live Stream Preview
+### 3. Live Stream Preview
 Verify frame alignment and capture performance in real time:
 ```bash
-python -m leyline.vision --preview --preset roblox --fps 15.0
+python -m leyline.vision --preview --preset car_game --fps 15.0
 ```
 Press `q` or `ESC` in the preview window to exit.
+
+---
+
+## Autonomous Gameplay Runner (Live HUD)
+
+Run the autonomous AI player against your calibrated game window:
+
+```bash
+# 1. Safe dry-run mode (AI decides and shows live HUD, but presses no keys)
+python -m leyline.runner --preset car_game --dry-run
+
+# 2. Live autonomous play with arrow key simulation
+python -m leyline.runner --preset car_game --fps 2.0
+
+# 3. Live autonomous play with WASD key mapping
+python -m leyline.runner --preset roblox --layout wasd --fps 2.0
+
+# 4. Offline mock mode (synthetic frames for testing without API keys)
+python -m leyline.runner --mock
+```
+
+Press `q` or `ESC` inside the HUD window to immediately exit and safely release all virtual keys.
 
 ---
 
@@ -154,8 +168,9 @@ python -m pytest tests/
 
 - [x] Initial project scaffolding & CI setup with Ruff
 - [x] Screen region capture & visual calibration tool
-- [ ] Keyboard input controller (pynput)
-- [ ] Gemini multimodal gamer agent (perception -> action loop)
+- [x] Low-latency keyboard input controller (pynput)
+- [x] Gemini multimodal gamer agent (perception -> action loop)
+- [x] Real-time live HUD overlay runner (OpenCV)
 - [ ] Commentator agent with edge-tts live voice streaming
 - [ ] OBS virtual camera & audio routing for YouTube Live
 - [ ] Game-specific presets (Subway Surfers, Contra, Adventure Island, Roblox)
