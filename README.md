@@ -54,31 +54,45 @@ flowchart TD
 
 ---
 
-## Quickstart
+## Quickstart & Environment Setup
 
 ### 1. Prerequisites
 - Python 3.10 or higher
 - A Google Gemini API Key (Google AI Studio: https://aistudio.google.com/)
 
-### 2. Installation
+### 2. Virtual Environment Creation & Activation
 
-Clone the repository and install dependencies:
+Always activate the project virtual environment before running commands:
 
 ```bash
+# Clone the repository
 git clone https://github.com/UpsiDupsii/LeyLine-Engine.git
 cd LeyLine-Engine
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# Linux/macOS:
-# source .venv/bin/activate
 
-pip install -e ".[dev]"
+# Create the dedicated virtual environment (if not already created)
+python -m venv .venv
+
+# Activate in PowerShell (Windows):
+.venv\Scripts\Activate.ps1
+
+# Activate in Command Prompt (cmd.exe):
+# .venv\Scripts\activate.bat
+
+# Activate in Linux/macOS:
+# source .venv/bin/activate
 ```
 
-### 3. Configure Environment
+### 3. Install Dependencies
 
-Copy `.env.example` to `.env` and insert your Gemini API Key:
+With `.venv` active, install the project requirements:
+
+```bash
+pip install -r requirements-dev.txt
+```
+
+### 4. Configure Secrets
+
+Copy `.env.example` to `.env` and insert your API keys:
 
 ```bash
 cp .env.example .env
@@ -92,55 +106,45 @@ GROQ_API_KEY=your_groq_api_key_here
 
 ---
 
-## Screen Perception & Calibration
+## How to Play Any Game Live (Step-by-Step)
 
-LeyLine includes an interactive tool to calibrate the screen bounding box around any game window so the vision engine processes only the relevant gameplay area.
+### Step 1: Open Your Target Game
+Open any browser car game, Subway Surfers, or Roblox in your browser or desktop window. Position it so it is visible on your screen.
 
-### 1. Detect System Monitors
+### Step 2: Calibrate the Screen Region
+Tell LeyLine where your game window is located on screen:
 ```bash
-python -m leyline.vision --monitors
-```
-
-### 2. Interactive Region Calibration
-Launch the calibrator to select the game window on your screen:
-```bash
-# Calibrate for a specific game preset (e.g. car_game, roblox, subway_surfers)
 python -m leyline.vision --calibrate --preset car_game
 ```
-Instructions:
-- A full-screen snapshot will appear.
-- Click and drag a rectangle over the game canvas.
+- A full-screen screenshot will appear.
+- Click and drag a rectangle around the game canvas (the road or playing field).
 - Press `ENTER` or `SPACE` to confirm and save the preset.
-- Press `c` to cancel.
 
-### 3. Live Stream Preview
-Verify frame alignment and capture performance in real time:
+### Step 3: Run the AI Gamer (Safe Dry-Run Mode)
+Verify the AI's vision and thinking on your live game without it pressing any keys:
 ```bash
-python -m leyline.vision --preview --preset car_game --fps 15.0
-```
-Press `q` or `ESC` in the preview window to exit.
-
----
-
-## Autonomous Gameplay Runner (Live HUD)
-
-Run the autonomous AI player against your calibrated game window:
-
-```bash
-# 1. Safe dry-run mode (AI decides and shows live HUD, but presses no keys)
 python -m leyline.runner --preset car_game --dry-run
+```
+- An OpenCV HUD window will pop up showing your real game feed.
+- The top banner displays the AI's live decisions (`ACTION: [LEFT]`, `[RIGHT]`, `[SPACE]`), inference latency, and tactical reasoning.
 
-# 2. Live autonomous play with arrow key simulation
+### Step 4: Run Live Autonomous Play
+Let the AI actively take control of the keyboard:
+```bash
+# For games using Arrow keys:
 python -m leyline.runner --preset car_game --fps 2.0
 
-# 3. Live autonomous play with WASD key mapping
+# For games using WASD keys:
 python -m leyline.runner --preset roblox --layout wasd --fps 2.0
+```
+- Focus on your game window.
+- Press `q` or `ESC` in the LeyLine HUD window at any time to safely stop and release all virtual keys.
 
-# 4. Offline mock mode (synthetic frames for testing without API keys)
+### Step 5: Offline Testing (Mock Mode)
+To test the HUD without an active game or API call:
+```bash
 python -m leyline.runner --mock
 ```
-
-Press `q` or `ESC` inside the HUD window to immediately exit and safely release all virtual keys.
 
 ---
 
