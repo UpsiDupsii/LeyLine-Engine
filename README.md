@@ -12,6 +12,7 @@ LeyLine is an autonomous dual-agent AI gaming platform designed to play video ga
 
 - AI Gamer Agent: Real-time perception and gameplay decision engine powered by Gemini multimodal vision models.
 - AI Shoutcaster Agent: Asynchronous, witty esports commentator that reacts dynamically to game highlights and clutch plays.
+- Screen Perception Engine: Sub-millisecond screen frame grabber and interactive ROI calibrator using mss and OpenCV.
 - Non-Blocking Architecture: Decoupled vision-action loop and commentary synthesis ensures zero steering lag.
 - Realistic Neural TTS: Natural esports voice output powered by edge-tts.
 - Stream-Ready: Designed to output video and audio layers directly compatible with OBS Studio for YouTube Live streams.
@@ -89,9 +90,49 @@ GEMINI_API_KEY=your_gemini_api_key_here
 
 ---
 
+## Screen Perception & Calibration
+
+LeyLine includes an interactive tool to calibrate the screen bounding box around any game window so the vision engine processes only the relevant gameplay area.
+
+### 1. Detect System Monitors
+```bash
+python -m leyline.vision --monitors
+```
+
+### 2. Interactive Region Calibration
+Launch the calibrator to select the game window on your screen:
+```bash
+# Calibrate for a specific game preset (e.g. roblox, subway_surfers, retro)
+python -m leyline.vision --calibrate --preset roblox
+```
+Instructions:
+- A full-screen snapshot will appear.
+- Click and drag a rectangle over the game canvas.
+- Press `ENTER` or `SPACE` to confirm and save the preset.
+- Press `c` to cancel.
+
+### 3. Manual Coordinate Preset
+```bash
+python -m leyline.vision --manual --preset subway_surfers --left 100 --top 100 --width 640 --height 480
+```
+
+### 4. List Saved Presets
+```bash
+python -m leyline.vision --list-presets
+```
+
+### 5. Live Stream Preview
+Verify frame alignment and capture performance in real time:
+```bash
+python -m leyline.vision --preview --preset roblox --fps 15.0
+```
+Press `q` or `ESC` in the preview window to exit.
+
+---
+
 ## Development & CI
 
-This repository uses Ruff for linting and code formatting.
+This repository uses Ruff for linting and code formatting, and pytest for unit testing.
 
 ```bash
 # Check linting
@@ -102,6 +143,9 @@ python -m ruff format --check .
 
 # Auto-fix formatting
 python -m ruff format .
+
+# Run test suite
+python -m pytest tests/
 ```
 
 ---
@@ -109,7 +153,7 @@ python -m ruff format .
 ## Roadmap
 
 - [x] Initial project scaffolding & CI setup with Ruff
-- [ ] Screen region capture & visual calibration tool
+- [x] Screen region capture & visual calibration tool
 - [ ] Keyboard input controller (pynput)
 - [ ] Gemini multimodal gamer agent (perception -> action loop)
 - [ ] Commentator agent with edge-tts live voice streaming
